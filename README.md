@@ -258,8 +258,6 @@ The following choices fill details not numerically specified in the paper:
 - Shared CPU payloads are gathered and resized inside each worker instead of being maintained as permanently pinned, preprocessed buffers. Transfer and IPC costs appear in actual request latency but are not part of the execution table. CPU memory estimates are intended for the CPU example; CUDA runs use allocator measurements and runtime memory checks.
 - Simulation records controller host cost separately and does not add that cost, IPC, or transfer time to its simulated request clock. Synthetic-profile plots therefore describe scheduler behavior under the configured cost model. Measured-profile simulation still draws from offline execution samples; actual hardware inference requires `--backend torch`.
 
-The implementation covers the paper's model adapters, scheduling components, baseline/ablation families, metrics, and experiment drivers. Training, inference replay, and experiments have not been executed, and the repository contains no prefilled experimental results. CI installs the package, checks dependency resolution and syntax, and checks CLI entry points; it does not run experiments.
-
 ## License
 
 MIT for this repository's code. Downloaded datasets, model weights, and external model sources retain their respective licenses.
