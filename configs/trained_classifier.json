@@ -1,0 +1,6 @@
+{
+  "batch_sizes": [1, 2, 4, 8, 16],
+  "models": [{"name": "mobilenet_v3_large", "architecture": "mobilenet_v3_large", "shapes": [224], "slo_ms": 100, "weight": 1, "priority": 0.5, "checkpoint": "checkpoints/cifar10/model.pt"}],
+  "workers": [{"name": "gpu", "device": "cuda:0", "memory_mb": 8192}],
+  "scheduler": {"wait_cap_ms": 5, "memory_reserve_mb": 512}
+}

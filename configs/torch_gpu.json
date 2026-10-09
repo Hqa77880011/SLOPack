@@ -1,0 +1,16 @@
+{
+  "batch_sizes": [1, 2, 4, 8, 16, 32],
+  "models": [
+    {"name": "resnet50", "architecture": "resnet50", "shapes": [224], "slo_ms": 80, "weight": 1, "priority": 0.5, "weights": "IMAGENET1K_V2"},
+    {"name": "efficientnet_b3", "architecture": "efficientnet_b3", "shapes": [300], "slo_ms": 100, "weight": 1, "priority": 0.4, "weights": "IMAGENET1K_V1"},
+    {"name": "mobilenet_v3_large", "architecture": "mobilenet_v3_large", "shapes": [224], "slo_ms": 60, "weight": 1, "priority": 0.6, "weights": "IMAGENET1K_V2"},
+    {"name": "vit_b_16", "architecture": "vit_b_16", "shapes": [224], "slo_ms": 120, "weight": 1, "priority": 0.5, "weights": "IMAGENET1K_V1"},
+    {"name": "bert_base", "architecture": "bert_base", "shapes": [128], "slo_ms": 100, "weight": 1, "priority": 0.5, "weights": "google-bert/bert-base-uncased"},
+    {"name": "yolov5m", "architecture": "yolov5m", "shapes": [640], "slo_ms": 140, "weight": 1, "priority": 0.3, "weights": "pretrained"}
+  ],
+  "workers": [
+    {"name": "t4", "device": "cuda:0", "memory_mb": 15360},
+    {"name": "a100", "device": "cuda:1", "memory_mb": 40960}
+  ],
+  "scheduler": {"wait_cap_ms": 5.0, "memory_reserve_mb": 512}
+}

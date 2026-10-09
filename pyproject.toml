@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slopack"
+version = "0.1.0"
+description = "Slack-aware dynamic batching and heterogeneous-device dispatch for multi-tenant inference"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["numpy>=1.24,<3", "matplotlib>=3.7,<4"]
+
+[project.optional-dependencies]
+torch = ["torch>=2.2,<3", "torchvision>=0.17,<1", "transformers>=4.40,<5"]
+yolo = ["ultralytics>=8.3,<9", "pandas>=2,<3", "opencv-python>=4.8,<5", "requests>=2.31", "PyYAML>=6", "psutil>=5.9", "tqdm>=4.66", "seaborn>=0.13", "Pillow>=10", "scipy>=1.11", "gitpython>=3.1"]
+
+[project.scripts]
+slopack = "slopack.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
