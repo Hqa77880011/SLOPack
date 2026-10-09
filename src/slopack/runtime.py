@@ -112,13 +112,15 @@ def execute(
     overrides=None,
     metadata=None,
     startup_timeout_s=300,
+    bias=0.0,
+    bias_mode="sustained",
 ):
     import torch
 
     if not 0 <= warmup_ms < duration_ms:
         raise ValueError("warmup must be nonnegative and shorter than duration")
     torch.set_num_threads(threads)
-    profiles = Profiles.load(profile_path)
+    profiles = Profiles.load(profile_path, bias, bias_mode)
     if profiles.metadata["source"] != "torch_measured":
         raise ValueError("Real execution requires a measured torch profile")
     if precision != profiles.metadata["precision"]:
@@ -286,13 +288,15 @@ def execute(
             "policy": policy,
             "ablation": ablation,
             "seed": seed,
-            "profile_bias": 0,
+            "profile_bias": bias,
+            "bias_mode": bias_mode,
             "precision": precision,
             "duration_ms": duration_ms,
             "warmup_ms": warmup_ms,
             "wait_cap_ms": scheduler.settings.wait_cap_ms,
             "guard_floor_ms": scheduler.settings.guard_floor_ms,
             "timeout_ms": scheduler.settings.timeout_ms,
+            "static_batch_size": scheduler.settings.static_batch_size,
             "config": config,
             "scheduler_settings": vars(scheduler.settings),
             "profile_source": profiles.metadata,

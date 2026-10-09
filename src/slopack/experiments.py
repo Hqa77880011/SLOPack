@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from slopack.io import read_json, write_csv, write_json
+from slopack.io import read_json, write_json
 from slopack.metrics import aggregate_runs
 from slopack.scheduler import ABLATIONS, POLICIES
 from slopack.simulation import simulate
@@ -28,13 +28,14 @@ def experiment(
     payloads,
     reference_qps=None,
     loads=None,
+    period_ms=100,
+    burst_factor=4,
+    burst_start=0.4,
+    burst_end=0.6,
+    bias_mode="sustained",
 ):
     if not 0 <= warmup_s < duration_s:
         raise ValueError("warmup must be shorter than duration")
-    if backend == "torch" and study in ("bias", "all"):
-        raise ValueError(
-            "Profile-bias injection is available in simulation; select individual hardware studies"
-        )
     if reference_qps is not None:
         if reference_qps <= 0 or not loads or min(loads) <= 0:
             raise ValueError(
@@ -45,7 +46,16 @@ def experiment(
     studies = (
         [study]
         if study != "all"
-        else ["compare", "ablation", "load", "pareto", "bias", "mixed"]
+        else [
+            "compare",
+            "ablation",
+            "load",
+            "pareto",
+            "bias",
+            "mixed",
+            "dispatch",
+            "burst",
+        ]
     )
     variants = []
     for current in studies:
@@ -87,13 +97,36 @@ def experiment(
                     current,
                     "poisson",
                     rate,
-                    "fixed_timeout",
+                    p,
                     "none",
                     0,
                     {"timeout_ms": w},
                     False,
                 )
                 for w in waits
+                for p in (
+                    "fixed_timeout",
+                    "dynamic_no_slack",
+                    "queue_length",
+                    "fastest_gpu",
+                )
+            ]
+            variants += [
+                (current, "poisson", rate, p, "none", 0, {}, False)
+                for p in ("fcfs", "edf", "sjf")
+            ]
+            variants += [
+                (
+                    current,
+                    "poisson",
+                    rate,
+                    "static",
+                    "none",
+                    0,
+                    {"static_batch_size": b},
+                    False,
+                )
+                for b in config["batch_sizes"]
             ]
         elif current == "bias":
             variants += [
@@ -105,6 +138,20 @@ def experiment(
                 (current, "poisson", rate, p, "none", 0, {}, True)
                 for p in ("slopack", "edf", "fixed_timeout", "dynamic_no_slack")
             ]
+        elif current == "dispatch":
+            variants += [
+                (current, kind, rate, p, "none", 0, {}, False)
+                for kind in traces
+                for p in ("slopack", "queue_length", "fastest_gpu")
+            ]
+        elif current == "burst":
+            variants += [
+                (current, "burst", rate, "slopack", a, 0, {}, False)
+                for a in ("none", "no_burst")
+            ]
+            variants.append(
+                (current, "burst", rate, "dynamic_no_slack", "none", 0, {}, False)
+            )
     paths = []
     trace_paths = {}
     for seed in seeds:
@@ -134,10 +181,11 @@ def experiment(
                     seed,
                     mixed,
                     payloads,
-                    100,
-                    4,
-                    0.4,
-                    0.6,
+                    period_ms,
+                    burst_factor,
+                    burst_start,
+                    burst_end,
+                    warmup_ms=warmup_s * 1000,
                 )
                 trace_paths[key] = trace_path
             requests = load_trace(trace_paths[key], config, duration_s * 1000)
@@ -166,6 +214,7 @@ def experiment(
                     bias,
                     overrides,
                     metadata,
+                    bias_mode=bias_mode,
                 )
             else:
                 from slopack.runtime import execute
@@ -185,6 +234,8 @@ def experiment(
                     payload_path,
                     overrides,
                     metadata,
+                    bias=bias,
+                    bias_mode=bias_mode,
                 )
             paths.append(path)
             print(
@@ -192,10 +243,6 @@ def experiment(
                 flush=True,
             )
     rows = aggregate_runs(paths, output / "summary.csv")
-    for row, path in zip(rows, paths):
-        row["experiment"] = read_json(path / "run.json")["experiment"]
-    fields = list(dict.fromkeys(key for row in rows for key in row))
-    write_csv(output / "summary.csv", rows, fields)
     write_json(
         output / "experiment.json",
         {

@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from slopack.io import read_json, write_csv, write_json
+from slopack.io import read_csv, read_json, write_csv, write_json
 
 
 def percentile(values, quantile):
@@ -13,6 +13,65 @@ def jain(values):
     values = np.asarray(values, dtype=float)
     denominator = len(values) * float(np.square(values).sum())
     return float(values.sum() ** 2 / denominator) if denominator else None
+
+
+def time_series(rows, events, start_ms, end_ms, bin_ms=1000):
+    if bin_ms <= 0 or end_ms <= start_ms:
+        raise ValueError("Timeline bins and interval must be positive")
+    count = int(np.ceil((end_ms - start_ms) / bin_ms))
+    arrivals = defaultdict(int)
+    completions = defaultdict(list)
+    protection = defaultdict(list)
+    for row in rows:
+        arrival = float(row["arrival_ms"])
+        if start_ms <= arrival < end_ms:
+            arrivals[int((arrival - start_ms) // bin_ms)] += 1
+        completion = row["completion_ms"]
+        if completion not in (None, "") and start_ms <= float(completion) < end_ms:
+            completions[int((float(completion) - start_ms) // bin_ms)].append(row)
+    for event in events:
+        time = float(event["time_ms"])
+        if start_ms <= time < end_ms:
+            protection[int((time - start_ms) // bin_ms)].append(
+                event["protection"] in (True, "True")
+            )
+    timeline = []
+    for index in range(count):
+        left = start_ms + index * bin_ms
+        right = min(end_ms, left + bin_ms)
+        selected = completions[index]
+        timeline.append(
+            {
+                "start_ms": left,
+                "end_ms": right,
+                "admitted": arrivals[index],
+                "offered_qps": arrivals[index] * 1000 / (right - left),
+                "completed": len(selected),
+                "completed_qps": len(selected) * 1000 / (right - left),
+                "p99_ms": percentile([float(r["latency_ms"]) for r in selected], 99),
+                "slo_violation_rate": sum(int(r["violated"]) for r in selected)
+                / len(selected)
+                if selected
+                else None,
+                "protection_fraction": float(np.mean(protection[index]))
+                if protection[index]
+                else 0.0,
+            }
+        )
+    return timeline
+
+
+def burst_peak(rows, events, metadata, bin_ms=1000):
+    trace = metadata.get("trace_metadata", {})
+    if trace.get("kind") != "burst":
+        return None
+    left, right = trace["burst_fraction"]
+    start = max(metadata["warmup_ms"], left * metadata["duration_ms"])
+    end = min(metadata["duration_ms"], right * metadata["duration_ms"])
+    if start >= end:
+        return None
+    timeline = time_series(rows, events, start, end, bin_ms)
+    return max((r["p99_ms"] for r in timeline if r["p99_ms"] is not None), default=None)
 
 
 def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
@@ -103,7 +162,9 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
     ]
     latency_bins = defaultdict(list)
     for row in window_completions:
-        latency_bins[int(row["completion_ms"] // 1000)].append(row["latency_ms"])
+        latency_bins[int((row["completion_ms"] - start_ms) // 1000)].append(
+            row["latency_ms"]
+        )
     failures = sum(
         (
             row["completion_ms"] is not None
@@ -228,6 +289,11 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
         }
         for (model, worker), errors in sorted(profile_groups.items())
     ]
+    metrics["profile_macro_accuracy_pct"] = (
+        float(np.mean([r["accuracy_pct"] for r in profile_rows]))
+        if profile_rows
+        else None
+    )
     return metrics, rows, per_model, classes, profile_rows
 
 
@@ -273,6 +339,7 @@ def save_run(
     from pathlib import Path
 
     output = Path(output)
+    metrics["burst_peak_p99_ms"] = burst_peak(rows, events, metadata)
     write_json(output / "metrics.json", metrics)
     write_json(output / "run.json", metadata)
     write_json(output / "profiles_final.json", scheduler.profiles.snapshot())
@@ -280,6 +347,7 @@ def save_run(
     write_csv(output / "batches.csv", batch_rows)
     write_csv(output / "per_model.csv", models)
     write_csv(output / "slo_classes.csv", classes)
+    write_csv(output / "timeline.csv", time_series(rows, events, start_ms, end_ms))
     write_csv(
         output / "profile_errors.csv",
         profile_rows,
@@ -318,11 +386,14 @@ def aggregate_runs(paths, output):
                     "trace_kind",
                     "offered_qps",
                     "profile_bias",
+                    "bias_mode",
                     "wait_cap_ms",
                     "guard_floor_ms",
                     "timeout_ms",
                     "reference_qps",
                     "offered_load",
+                    "static_batch_size",
+                    "experiment",
                 )
             }
         )
@@ -389,7 +460,7 @@ def evaluate_saved(path):
             for r in csv.DictReader(handle)
             if meta["warmup_ms"] <= float(r["time_ms"]) < meta["duration_ms"]
         ]
-    metrics, _, models, classes, errors = evaluate(
+    metrics, rows, models, classes, errors = evaluate(
         requests,
         batches,
         meta["warmup_ms"],
@@ -397,9 +468,15 @@ def evaluate_saved(path):
         [w["name"] for w in meta["config"]["workers"]],
         costs,
     )
+    events = read_csv(path / "controller.csv")
+    metrics["burst_peak_p99_ms"] = burst_peak(rows, events, meta)
     write_json(path / "metrics.json", metrics)
     write_csv(path / "per_model.csv", models)
     write_csv(path / "slo_classes.csv", classes)
+    write_csv(
+        path / "timeline.csv",
+        time_series(rows, events, meta["warmup_ms"], meta["duration_ms"]),
+    )
     write_csv(
         path / "profile_errors.csv",
         errors,

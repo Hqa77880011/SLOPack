@@ -19,12 +19,14 @@ class ProfileEntry:
     relative_error_p95: float
     residual_p95_ms: float
     samples_ms: list
+    heldout_samples_ms: list = field(default_factory=list)
     estimate_ms: float = field(init=False)
     guard_ms: float = field(init=False)
     stale: bool = False
     observations: int = 0
     errors: deque = field(default_factory=deque)
     residuals: deque = field(default_factory=deque)
+    bias_scale: float = field(default=1.0, init=False)
 
     def __post_init__(self):
         if self.median_ms <= 0 or self.memory_mb < 0 or self.resident_mb < 0:
@@ -60,7 +62,8 @@ class ProfileEntry:
             if float(np.percentile(self.errors, 95)) > threshold:
                 self.stale = True
         self.estimate_ms = (
-            settings.rho * observed_ms + (1 - settings.rho) * self.estimate_ms
+            settings.rho * observed_ms * self.bias_scale
+            + (1 - settings.rho) * self.estimate_ms
         )
         return error
 
@@ -75,13 +78,16 @@ class Profiles:
             self.entries[entry.key] = entry
 
     @classmethod
-    def load(cls, path, bias=0.0):
+    def load(cls, path, bias=0.0, bias_mode="sustained"):
         if bias <= -1:
             raise ValueError("Profile bias must exceed -1")
+        if bias_mode not in ("initial", "sustained"):
+            raise ValueError("Unknown profile bias mode")
         document = read_json(path)
         entries = [ProfileEntry(**row) for row in document["entries"]]
         for entry in entries:
             entry.estimate_ms *= 1 + bias
+            entry.bias_scale = 1 + bias if bias_mode == "sustained" else 1.0
         return cls(entries, document["metadata"])
 
     def get(self, model, worker, shape, size):
@@ -126,6 +132,7 @@ def summarize_samples(model, worker, shape, size, samples, heldout, memory, resi
         "relative_error_p95": float(np.percentile(abs(heldout - median) / heldout, 95)),
         "residual_p95_ms": float(np.percentile(np.maximum(heldout - median, 0), 95)),
         "samples_ms": [float(value) for value in samples],
+        "heldout_samples_ms": [float(value) for value in heldout],
     }
 
 

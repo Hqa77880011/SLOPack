@@ -20,3 +20,6 @@ jobs:
       - run: python -m compileall -q src
       - run: slopack --help
       - run: slopack run --help
+      - run: slopack experiment --help
+      - run: slopack report --help
+      - run: python -c "import slopack.reporting, slopack.plotting"

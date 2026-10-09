@@ -82,11 +82,14 @@ def generate_trace(
     burst_factor,
     burst_start,
     burst_end,
+    warmup_ms=0.0,
 ):
     if rate <= 0 or duration_s <= 0 or payloads < 1 or period_ms <= 0:
         raise ValueError("Rate, duration, payload count, and period must be positive")
     if burst_factor < 1 or not 0 <= burst_start < burst_end <= 1:
         raise ValueError("Invalid burst interval or factor")
+    if not 0 <= warmup_ms < duration_s * 1000:
+        raise ValueError("warmup must be nonnegative and shorter than duration")
     rng = np.random.default_rng(seed)
     duration = duration_s * 1000
     arrivals = []
@@ -115,9 +118,16 @@ def generate_trace(
     weights = np.asarray([m.get("weight", 1) for m in models], dtype=float)
     weights /= weights.sum()
     rows = []
+    strict_labels = np.zeros(len(arrivals), dtype=bool)
+    if mixed_slo:
+        split = int(np.searchsorted(arrivals, warmup_ms))
+        for left, right in ((0, split), (split, len(arrivals))):
+            labels = strict_labels[left:right]
+            labels[: len(labels) // 2] = True
+            rng.shuffle(labels)
     for index, arrival in enumerate(arrivals):
         model = models[int(rng.choice(len(models), p=weights))]
-        strict = mixed_slo and bool(rng.integers(0, 2))
+        strict = bool(strict_labels[index])
         slo_class = ("strict" if strict else "relaxed") if mixed_slo else "default"
         factor = (0.6 if strict else 1.4) if mixed_slo else 1.0
         request = Request(
@@ -141,6 +151,7 @@ def generate_trace(
             "offered_qps": rate,
             "duration_s": duration_s,
             "mixed_slo": mixed_slo,
+            "warmup_ms": warmup_ms,
             "payloads": payloads,
             "period_ms": period_ms,
             "burst_factor": burst_factor,

@@ -83,6 +83,7 @@ def build_parser():
     )
     trace.add_argument("--rate", type=float, default=200)
     trace.add_argument("--duration-s", type=float, default=20)
+    trace.add_argument("--warmup-s", type=float, default=0)
     trace.add_argument("--seed", type=int, default=0)
     trace.add_argument("--mixed-slo", action="store_true")
     trace.add_argument("--payloads", type=int, default=64)
@@ -99,6 +100,9 @@ def build_parser():
     run.add_argument("--ablation", choices=ABLATIONS, default="none")
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--profile-bias", type=float, default=0)
+    run.add_argument(
+        "--bias-mode", choices=("initial", "sustained"), default="sustained"
+    )
     run.add_argument("--wait-cap-ms", type=float)
     run.add_argument("--guard-floor-ms", type=float)
     run.add_argument("--timeout-ms", type=float)
@@ -109,7 +113,17 @@ def build_parser():
     _execution(experiment)
     experiment.add_argument(
         "--study",
-        choices=("compare", "ablation", "load", "pareto", "bias", "mixed", "all"),
+        choices=(
+            "compare",
+            "ablation",
+            "load",
+            "pareto",
+            "bias",
+            "mixed",
+            "dispatch",
+            "burst",
+            "all",
+        ),
         default="compare",
     )
     experiment.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2, 3, 4])
@@ -133,6 +147,13 @@ def build_parser():
         "--biases", nargs="+", type=float, default=[-0.1, -0.05, 0, 0.05, 0.1]
     )
     experiment.add_argument("--payloads", type=int, default=64)
+    experiment.add_argument("--period-ms", type=float, default=100)
+    experiment.add_argument("--burst-factor", type=float, default=4)
+    experiment.add_argument("--burst-start", type=float, default=0.4)
+    experiment.add_argument("--burst-end", type=float, default=0.6)
+    experiment.add_argument(
+        "--bias-mode", choices=("initial", "sustained"), default="sustained"
+    )
     evaluate = commands.add_parser(
         "evaluate", help="Recompute metrics from a saved run's raw records"
     )
@@ -144,6 +165,14 @@ def build_parser():
     plot.add_argument("--output", required=True, type=Path)
     plot.add_argument("--kind", choices=("run", "experiment"), default="run")
     plot.add_argument("--bin-ms", type=float, default=1000)
+    report = commands.add_parser(
+        "report", help="Export paper experiment tables and figures from saved records"
+    )
+    report.add_argument("--input", required=True, type=Path)
+    report.add_argument("--profile", required=True, type=Path)
+    report.add_argument("--output", required=True, type=Path)
+    report.add_argument("--violation-limit", type=float, default=0.04)
+    report.add_argument("--bin-ms", type=float, default=1000)
     return parser
 
 
@@ -205,6 +234,7 @@ def main():
             args.burst_factor,
             args.burst_start,
             args.burst_end,
+            warmup_ms=args.warmup_s * 1000,
         )
     elif args.command == "run":
         from slopack.workload import load_trace
@@ -247,10 +277,9 @@ def main():
                 args.profile_bias,
                 overrides,
                 metadata,
+                bias_mode=args.bias_mode,
             )
         else:
-            if args.profile_bias:
-                raise ValueError("--profile-bias is available in simulation only")
             from slopack.runtime import execute
 
             result = execute(
@@ -268,6 +297,8 @@ def main():
                 args.data,
                 overrides,
                 metadata,
+                bias=args.profile_bias,
+                bias_mode=args.bias_mode,
             )
         print(json.dumps(result, indent=2, allow_nan=False))
     elif args.command == "experiment":
@@ -294,6 +325,11 @@ def main():
             args.payloads,
             args.reference_qps,
             args.loads,
+            args.period_ms,
+            args.burst_factor,
+            args.burst_start,
+            args.burst_end,
+            args.bias_mode,
         )
     elif args.command == "evaluate":
         from slopack.metrics import evaluate_saved
@@ -306,6 +342,12 @@ def main():
             plot_run(args.input, args.output, args.bin_ms)
         else:
             plot_experiment(args.input, args.output)
+    elif args.command == "report":
+        from slopack.reporting import report_experiments
+
+        report_experiments(
+            args.input, args.profile, args.output, args.violation_limit, args.bin_ms
+        )
 
 
 if __name__ == "__main__":

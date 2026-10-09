@@ -10,6 +10,11 @@ def read_json(path):
         return json.load(handle)
 
 
+def read_csv(path):
+    with Path(path).open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

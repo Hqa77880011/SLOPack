@@ -48,7 +48,7 @@ slopack generate-trace --config configs/simulation.json --kind poisson --rate 20
 - `periodic`: requests arrive together every `--period-ms` (default 100 ms); counts preserve the requested mean rate in expectation.
 - `burst`: a Poisson trace with a higher rate between `--burst-start` and `--burst-end`, expressed as fractions of the duration. `--burst-factor` defaults to 4; rates outside the burst are adjusted to preserve the requested mean offered rate.
 
-`--mixed-slo` assigns requests to strict and relaxed classes with equal probability, multiplying the model's SLO by 0.6 and 1.4. `--payloads` sets the range of payload IDs, defaulting to 64. A JSON sidecar records generation parameters.
+`--mixed-slo` assigns equal numbers of requests to strict and relaxed classes, multiplying the model's SLO by 0.6 and 1.4. Labels are shuffled separately within the warm-up and measurement intervals; odd counts differ by one request. Use `--warmup-s` to match the subsequent run. `--payloads` sets the range of payload IDs, defaulting to 64. A JSON sidecar records generation parameters.
 
 Existing traffic can be supplied as a sorted CSV with this header:
 
@@ -110,7 +110,7 @@ slopack profile --config configs/torch_gpu.json --backend torch --samples 200 --
 
 The six adapters are [TorchVision](https://docs.pytorch.org/vision/stable/models.html) ResNet-50, EfficientNet-B3, MobileNetV3-Large, and ViT-B/16; [Transformers BERT-base](https://huggingface.co/docs/transformers/model_doc/bert); and [YOLOv5m](https://docs.ultralytics.com/yolov5/tutorials/pytorch-hub-model-loading). No request changes model or precision during scheduling. ViT replicas require one fixed image size.
 
-`--samples` counts timed executions per `(model, worker, shape, batch_size)`; `--heldout` uses separate executions to estimate P95 relative errors and positive residuals. CUDA events provide GPU timing summaries, while the scheduling profile uses host forward duration through CUDA synchronization. Profiles exclude preprocessing and host-to-device transfer. CUDA memory records incremental peak allocated memory plus input tensors; resident model memory is accounted for separately. Out-of-memory tuples are omitted and listed in profile metadata. CPU memory admission uses an input-size estimate rather than a measured allocator peak.
+`--samples` counts timed executions per `(model, worker, shape, batch_size)`; `--heldout` uses separate executions to estimate P95 relative errors and positive residuals. Both sample sets are saved, allowing model/device accuracy to be computed without resampling. CUDA events provide GPU timing summaries, while the scheduling profile uses host forward duration through CUDA synchronization. Profiles exclude preprocessing and host-to-device transfer. CUDA memory records incremental peak allocated memory plus input tensors; resident model memory is accounted for separately. Out-of-memory tuples are omitted and listed in profile metadata. CPU memory admission uses an input-size estimate rather than a measured allocator peak.
 
 ## 4. Run the method or a baseline
 
@@ -165,10 +165,12 @@ The same command accepts `--backend torch` and a matching measured profile for h
 | `compare` | Nine policies on Poisson, periodic, and burst traces |
 | `ablation` | Full method and `no_arrival`, `no_hetero`, `no_queue`, `no_aging`, `no_burst` |
 | `load` | Offered-rate sweep with SLOPack, dynamic batching without slack, and fixed timeout |
-| `pareto` | SLOPack wait/guard sweep and fixed-timeout operating points |
-| `bias` | Initial latency-profile bias with unchanged observed runtime samples |
+| `pareto` | SLOPack wait/guard sweep, timeout sweeps, static batch-size sweep, and all eight baselines |
+| `bias` | Latency-profile bias at −10%, −5%, 0%, +5%, and +10%, with initial or sustained injection |
 | `mixed` | Strict/relaxed SLO classes with four policies |
-| `all` | All six studies in simulation |
+| `dispatch` | SLOPack, queue-length dispatch, and fastest-GPU dispatch on the selected traces |
+| `burst` | Burst timeline comparison of the full method, disabled protection, and dynamic batching without slack |
+| `all` | All eight studies, available on either execution backend |
 
 For example:
 
@@ -178,11 +180,37 @@ slopack experiment --config configs/simulation.json --profile outputs/synthetic_
 slopack experiment --config configs/simulation.json --profile outputs/synthetic_profile.json --study pareto --waits 0.5 2 5 10 --guards 0.2 1 2 --output outputs/pareto
 slopack experiment --config configs/simulation.json --profile outputs/synthetic_profile.json --study bias --biases -0.1 -0.05 0 0.05 0.1 --output outputs/bias
 slopack experiment --config configs/simulation.json --profile outputs/synthetic_profile.json --study mixed --output outputs/mixed
+slopack experiment --config configs/simulation.json --profile outputs/synthetic_profile.json --study dispatch --traces poisson --output outputs/dispatch
+slopack experiment --config configs/simulation.json --profile outputs/synthetic_profile.json --study burst --output outputs/burst
 ```
 
-`no_arrival` waits for the bounded guarded slack without estimating fill time. `no_hetero` pins each candidate to its fastest feasible replica. `no_queue` removes backlog from predictions while workers still execute queued work. `no_aging` sets the aging coefficient to zero. `no_burst` disables protection. Profile-bias sweeps apply only to simulation; EMA gradually corrects the injected initial bias.
+`no_arrival` waits for the bounded guarded slack without estimating fill time. `no_hetero` pins each candidate to its fastest feasible replica. `no_queue` removes backlog from predictions while workers still execute queued work. `no_aging` sets the aging coefficient to zero. `no_burst` disables protection.
 
-The paper uses 1,200 seconds of measurement after 120 seconds of warm-up, so the corresponding CLI durations are `--duration-s 1320 --warmup-s 120`, with five seeds. Rate sweeps use requests/s; a percentage offered load requires an explicitly chosen reference capacity. `--reference-qps` and `--loads` can express this sweep once that capacity is known. The default examples use shorter runs for practical exploration.
+Profile-bias sweeps change runtime predictions while leaving executed work and observed timings unchanged. The default `--bias-mode sustained` multiplies the initial estimate and each EMA observation by `1 + bias`, keeping the error injection active through measurement. `--bias-mode initial` biases only the initial estimate and lets EMA correct it. Both modes work with simulation and hardware execution; `run --profile-bias` applies a single bias. Trace controls `--period-ms`, `--burst-factor`, `--burst-start`, and `--burst-end` are also available on `experiment`.
+
+The paper uses 1,200 seconds of measurement after 120 seconds of warm-up, so the corresponding CLI durations are `--duration-s 1320 --warmup-s 120`, with five seeds. Rate sweeps use requests/s; `--reference-qps` and `--loads` express percentage offered load relative to a chosen reference capacity. The following complete study uses 250 QPS as an example reference; set that value and `--rate` for the workload and hardware being compared. The paper does not define how its reference capacity was determined.
+
+```bash
+slopack experiment --config configs/torch_gpu.json --profile outputs/gpu_profile.json --backend torch --study all --duration-s 1320 --warmup-s 120 --rate 200 --reference-qps 250 --loads 0.5 0.75 0.9 0.95 1.0 1.1 --seeds 0 1 2 3 4 --data data/cifar10.npz --output outputs/paper
+slopack report --input outputs/paper --profile outputs/gpu_profile.json --output outputs/paper/report --violation-limit 0.04 --bin-ms 1000
+```
+
+`report` reads saved records and the profile, exports arithmetic seed means and sample standard deviations, and creates PNG/SVG figures. `--violation-limit` is a fraction: `0.04` selects operating points with mean violation rate at most 4%. `--bin-ms` controls burst-comparison timeline resolution. Keep run directories at their recorded paths and invoke reporting from the repository root.
+
+| Paper experiment | Study / source | Report output |
+| --- | --- | --- |
+| Model/device median latency, B1 and B16 | `profile` | `table_profile_latency.csv`, `profile_tuples.csv` |
+| Poisson, periodic, burst policy comparison | `compare` | `table_main.csv`, `figures/compare_*.png` |
+| Load scaling, including 95% offered load | `load` with `--reference-qps` | `table_load_scaling.csv`, `figures/load_poisson.png` |
+| Throughput/violation trade-off | `pareto` | `table_operating_points.csv`, `pareto_best.csv`, `figures/pareto_poisson.png` |
+| Burst response and protection mode | `burst` | `table_burst.csv`, `figures/burst_timeline.csv`, `figures/fig5_burst_timeline_*.png` |
+| Strict/relaxed SLOs and Jain fairness | `mixed` | `table_mixed_slo.csv`, `figures/mixed_slo_classes.png` |
+| Heterogeneous dispatch and per-GPU utilization | `dispatch` | `table_dispatch.csv`, `figures/dispatch_*_utilization.png` |
+| Model/device prediction accuracy and P95 error | Run batch records and held-out profile samples | `table_profile_accuracy.csv`, `table_profile_accuracy_offline.csv`, `figures/fig6_profile_accuracy_*.png` |
+| Five component ablations and decision cost | `ablation` | `table_ablation.csv`, `figures/ablation_*_diagnostics.png` |
+| Execution-time profile bias sensitivity | `bias` | `table_profile_bias.csv`, `figures/bias_poisson.png` |
+
+All report tables retain P50/P95/P99, completed and on-time QPS, endpoint backlogs, per-worker utilization, model/class Jain indices, profile errors, and mean/P95 scheduling cost when applicable. `relative_comparisons.csv` computes violation and P99 reductions and QPS gains against each comparison variant. `pareto_best.csv` contains each policy's highest-throughput feasible point, the best feasible baseline, and SLOPack's relative QPS gain. If no point satisfies the constraint, the table has a header and no selected rows.
 
 ## Configuration
 
@@ -223,6 +251,7 @@ Each run writes the following files under its output directory:
 | `profile_errors.csv` | Model/worker MAPE, P95 relative error, and `100 − MAPE` accuracy |
 | `profiles_final.json` | Online estimates, residual guards, observation counts, and stale flags |
 | `controller.csv` | Window-level arrival estimates, outstanding requests, protection state |
+| `timeline.csv` | Measurement-window bins: offered/completed QPS, P99, violations, and protection fraction |
 | `scheduler_costs.csv` | Decision timestamps and durations in microseconds |
 | `predictions.csv`, `cuda_times.csv` | PyTorch prediction summaries and CUDA-event timings |
 
@@ -231,16 +260,18 @@ Each run writes the following files under its output directory:
 Metric definitions are explicit:
 
 - **SLO violation rate:** completed requests in the measurement window whose actual completion exceeds their individual deadline, divided by all window completions.
-- **P50/P95/P99:** arrival-to-completion latency of window completions. Peak P99 is the maximum among populated 1-second completion bins.
+- **P50/P95/P99:** arrival-to-completion latency of window completions. `peak_p99_ms` is the maximum among populated 1-second completion bins across the measurement window. `burst_peak_p99_ms` applies the same calculation only inside the generated arrival-spike interval, clipped to measurement; bins begin at that interval's start.
 - **Completed QPS / on-time QPS:** window completions / deadline successes divided by window duration. Warm-up arrivals may complete in this interval.
 - **Backlog:** outstanding admitted requests at either boundary. `completed = admitted + backlog_start − backlog_end`; `conservation_error` reports this equality's residual.
 - **Cohort deadline failure at endpoint:** late completed requests plus overdue unfinished requests from the measurement arrival cohort, divided by that cohort's admissions. Non-overdue unfinished requests remain pending.
 - **Utilization:** worker forward-execution busy intervals clipped to the measurement window, divided by its duration. CPU workers report busy fraction with the same definition.
 - **Jain fairness:** `(sum x)^2 / (n * sum x²)`. The primary `jain_service` uses each model's completed fraction of its measurement arrival cohort. `jain_deadline_success` uses each model's on-time fraction. SLO-class variants use the same definitions for strict/relaxed classes.
-- **Profile MAPE:** mean `abs(observed − predicted) / observed` for completed batches, expressed as a percentage. The P95 error and prediction accuracy are reported alongside it.
+- **Profile MAPE:** mean `abs(observed − predicted) / observed` for completed batches, expressed as a percentage. Accuracy is `100 − MAPE`; P95 absolute percentage error is also reported. `profile_macro_accuracy_pct` averages accuracy equally over observed model/device pairs. Online pair tables aggregate each run's MAPE and P95 across seeds; offline pair tables pool held-out samples across supported shapes and batch sizes. Online figures use `compare` runs when available, otherwise the first available study.
 - **Scheduling cost:** host `perf_counter_ns` duration of controller decision calls within the measurement interval, including scans that find no ready candidate; mean and P95 are in microseconds.
 
 Empty completion windows have `null` latency, violation, and profile metrics. Fully drained cohort statistics are reported separately. Draining the same cohort and dividing by the same arrival duration would give identical QPS across lossless policies, so throughput comparisons use the finite measurement window and include its endpoint backlog.
+
+Burst-comparison curves average each time bin across seeds. Orange opacity is proportional to the full method's mean protection fraction in that bin; dotted vertical lines mark the configured arrival spike. Peak burst P99 is computed per run before averaging, rather than taking the maximum of the averaged curve. The load plot's 100 ms line is a latency reference; individual request deadlines still use their model and SLO class.
 
 ## Implementation conventions
 
@@ -254,7 +285,7 @@ The following choices fill details not numerically specified in the paper:
 - P95 relative-error margins inflate candidate runtime for feasibility; central estimates determine worker ranking and per-request execution cost. The residual guard is added separately. Queue backlog uses central runtime estimates.
 - Burst detection uses aggregate per-model arrival EMAs against the previous 200 ms mean, starts after a full reference window, and applies the paper's consecutive entry/exit counts.
 - Guard and stale checks are per profile tuple. A stale tuple still receives execution feedback, but controlled waiting for growth remains disabled until a newly built profile is loaded.
-- Baseline batch rules, strict/relaxed budgets, fairness shares, finite-window accounting, shape choices, and synthetic cost curves are defined above because the paper does not specify them completely.
+- Baseline batch rules, strict/relaxed budgets, fairness shares, finite-window accounting, shape choices, burst binning, profile-bias duration, reference capacity, and synthetic cost curves are defined above because the paper does not specify them completely.
 - Shared CPU payloads are gathered and resized inside each worker instead of being maintained as permanently pinned, preprocessed buffers. Transfer and IPC costs appear in actual request latency but are not part of the execution table. CPU memory estimates are intended for the CPU example; CUDA runs use allocator measurements and runtime memory checks.
 - Simulation records controller host cost separately and does not add that cost, IPC, or transfer time to its simulated request clock. Synthetic-profile plots therefore describe scheduler behavior under the configured cost model. Measured-profile simulation still draws from offline execution samples; actual hardware inference requires `--backend torch`.
 

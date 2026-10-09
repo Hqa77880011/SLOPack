@@ -20,10 +20,11 @@ def simulate(
     bias=0,
     overrides=None,
     metadata=None,
+    bias_mode="sustained",
 ):
     if not 0 <= warmup_ms < duration_ms:
         raise ValueError("warmup must be nonnegative and shorter than duration")
-    profiles = Profiles.load(profile_path, bias)
+    profiles = Profiles.load(profile_path, bias, bias_mode)
     scheduler = Scheduler(config, profiles, policy, ablation, overrides)
     completions = []
     batches = []
@@ -97,12 +98,14 @@ def simulate(
         "ablation": ablation,
         "seed": seed,
         "profile_bias": bias,
+        "bias_mode": bias_mode,
         "duration_ms": duration_ms,
         "warmup_ms": warmup_ms,
         "profile_source": profiles.metadata,
         "wait_cap_ms": scheduler.settings.wait_cap_ms,
         "guard_floor_ms": scheduler.settings.guard_floor_ms,
         "timeout_ms": scheduler.settings.timeout_ms,
+        "static_batch_size": scheduler.settings.static_batch_size,
         "config": config,
         "scheduler_settings": vars(scheduler.settings),
         "runtime_sampling": "fixed offline samples; deterministic by seed, tuple, and request IDs",
