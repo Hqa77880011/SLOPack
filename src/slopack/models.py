@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -41,15 +42,22 @@ def load_model(spec, device, precision="fp32"):
             else BertModel.from_pretrained(weights)
         )
     elif architecture == "yolov5m":
-        model = torch.hub.load(
-            "ultralytics/yolov5:f9578796b8a64889aa9e66dc06914d19f40d338e",
-            "yolov5m",
-            pretrained=weights != "random",
-            autoshape=False,
-            trust_repo=True,
-            device="cpu",
-            _verbose=False,
-        )
+        visibility = os.environ.get("CUDA_VISIBLE_DEVICES")
+        try:
+            model = torch.hub.load(
+                "ultralytics/yolov5:f9578796b8a64889aa9e66dc06914d19f40d338e",
+                "yolov5m",
+                pretrained=weights != "random",
+                autoshape=False,
+                trust_repo=True,
+                device="cpu",
+                _verbose=False,
+            )
+        finally:
+            if visibility is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = visibility
         if getattr(model, "pt", False):
             model = model.model
     else:
