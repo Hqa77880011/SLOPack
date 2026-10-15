@@ -1,8 +1,6 @@
 import os
 from pathlib import Path
-
 import numpy as np
-
 
 VISION_MODELS = ("resnet50", "efficientnet_b3", "mobilenet_v3_large", "vit_b_16")
 
@@ -93,7 +91,7 @@ def load_payloads(path=None, count=64, seed=0):
             tokens.ndim != 2
             or len(tokens) == 0
             or tokens.min() < 0
-            or tokens.max() >= 30522
+            or (tokens.max() >= 30522)
         ):
             raise ValueError("BERT tokens must be a nonempty N x S array in [0, 30522)")
         bank["tokens"] = torch.from_numpy(tokens.astype(np.int64)).share_memory_()
@@ -148,8 +146,10 @@ def prediction_summary(spec, output):
 def parameter_mb(model):
     return (
         sum(
-            t.numel() * t.element_size()
-            for t in list(model.parameters()) + list(model.buffers())
+            (
+                t.numel() * t.element_size()
+                for t in list(model.parameters()) + list(model.buffers())
+            )
         )
         / 2**20
     )

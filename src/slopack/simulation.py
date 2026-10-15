@@ -1,7 +1,6 @@
 import hashlib
 import heapq
 from time import perf_counter_ns
-
 from slopack.metrics import save_run
 from slopack.profiles import Profiles
 from slopack.scheduler import Scheduler
@@ -38,7 +37,7 @@ def simulate(
             batch = worker.pending[0]
             scheduler.started(batch, now)
             entry = profiles.get(batch.model, worker.name, batch.shape, batch.size)
-            identity = f"{seed}:{batch.model}:{worker.name}:{batch.shape}:{','.join(str(r.request_id) for r in batch.requests)}"
+            identity = f"{seed}:{batch.model}:{worker.name}:{batch.shape}:{','.join((str(r.request_id) for r in batch.requests))}"
             index = int.from_bytes(
                 hashlib.blake2b(identity.encode(), digest_size=8).digest(), "little"
             ) % len(entry.samples_ms)
@@ -51,35 +50,37 @@ def simulate(
         cursor < len(requests)
         or completions
         or any(scheduler.queues.values())
-        or any(w.pending for w in scheduler.workers.values())
+        or any((w.pending for w in scheduler.workers.values()))
     ):
         next_arrival = (
             requests[cursor].arrival_ms if cursor < len(requests) else float("inf")
         )
         next_completion = completions[0][0] if completions else float("inf")
         now = min(next_arrival, next_completion, next_tick, scheduler.next_wakeup(now))
-        while completions and completions[0][0] <= now + 1e-9:
+        while completions and completions[0][0] <= now + 1e-09:
             end, _, batch, observed = heapq.heappop(completions)
             scheduler.completed(batch, end, observed)
             batches.append(batch)
             start_pending(scheduler.workers[batch.worker])
-        if now >= next_tick - 1e-9:
+        if now >= next_tick - 1e-09:
             scheduler.estimator.tick()
             events.append(
                 {
                     "time_ms": now,
-                    "backlog": sum(len(q) for q in scheduler.queues.values())
+                    "backlog": sum((len(q) for q in scheduler.queues.values()))
                     + sum(
-                        sum(b.size for b in w.pending)
-                        + (w.running.size if w.running else 0)
-                        for w in scheduler.workers.values()
+                        (
+                            sum((b.size for b in w.pending))
+                            + (w.running.size if w.running else 0)
+                            for w in scheduler.workers.values()
+                        )
                     ),
                     "arrival_rate_per_ms": sum(scheduler.estimator.rates.values()),
                     "protection": scheduler.protection,
                 }
             )
             next_tick += scheduler.settings.window_ms
-        while cursor < len(requests) and requests[cursor].arrival_ms <= now + 1e-9:
+        while cursor < len(requests) and requests[cursor].arrival_ms <= now + 1e-09:
             scheduler.add(requests[cursor])
             cursor += 1
         exhausted = now >= duration_ms

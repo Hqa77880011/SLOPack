@@ -1,10 +1,7 @@
 from collections import defaultdict
 from pathlib import Path
-
 import numpy as np
-
 from slopack.io import read_csv, read_json, write_csv, write_json
-
 
 GROUP_FIELDS = (
     "backend",
@@ -27,7 +24,7 @@ GROUP_FIELDS = (
 def aggregate_rows(rows, group_fields, metric_fields):
     groups = defaultdict(list)
     for row in rows:
-        groups[tuple(row.get(field, "") for field in group_fields)].append(row)
+        groups[tuple((row.get(field, "") for field in group_fields))].append(row)
     result = []
     for key, runs in groups.items():
         row = dict(zip(group_fields, key))
@@ -53,12 +50,12 @@ def aggregate_summary(path):
         for field in rows[0]
         if field not in GROUP_FIELDS and field not in ("seed", "run")
     ]
-    return rows, aggregate_rows(rows, GROUP_FIELDS, fields)
+    return (rows, aggregate_rows(rows, GROUP_FIELDS, fields))
 
 
 def _write_table(path, rows):
     if rows:
-        fields = list(dict.fromkeys(field for row in rows for field in row))
+        fields = list(dict.fromkeys((field for row in rows for field in row)))
         write_csv(path, rows, fields)
 
 
@@ -78,7 +75,7 @@ def export_profile(profile_path, output):
     for entry in entries:
         if entry["batch_size"] not in (1, 16):
             continue
-        key = entry["model"], entry["shape"]
+        key = (entry["model"], entry["shape"])
         row = wide.setdefault(key, {"model": key[0], "shape": key[1]})
         column = f"{entry['worker']}_B{entry['batch_size']}_median_ms"
         row[column] = entry["median_ms"]
@@ -87,7 +84,7 @@ def export_profile(profile_path, output):
     errors = defaultdict(list)
     for entry in entries:
         for observed in entry.get("heldout_samples_ms", []):
-            errors[(entry["model"], entry["worker"])].append(
+            errors[entry["model"], entry["worker"]].append(
                 abs(observed - entry["median_ms"]) / observed
             )
     accuracy = [
@@ -112,9 +109,9 @@ def pareto_best(stats, limit):
         if (
             row["experiment"] == "pareto"
             and violation is not None
-            and violation <= limit
+            and (violation <= limit)
         ):
-            groups[(row["backend"], row["trace_kind"], row["offered_qps"])].append(row)
+            groups[row["backend"], row["trace_kind"], row["offered_qps"]].append(row)
     result = []
     for points in groups.values():
         winners = []
@@ -153,13 +150,15 @@ def relative_comparisons(stats):
         if row["experiment"] != "pareto":
             groups[
                 tuple(
-                    row[field]
-                    for field in (
-                        "backend",
-                        "experiment",
-                        "trace_kind",
-                        "offered_qps",
-                        "bias_mode",
+                    (
+                        row[field]
+                        for field in (
+                            "backend",
+                            "experiment",
+                            "trace_kind",
+                            "offered_qps",
+                            "bias_mode",
+                        )
                     )
                 )
             ].append(row)
@@ -171,7 +170,7 @@ def relative_comparisons(stats):
                 for row in points
                 if row["policy"] == "slopack"
                 and row["ablation"] == "none"
-                and float(row["profile_bias"]) == 0
+                and (float(row["profile_bias"]) == 0)
             ),
             None,
         )
@@ -202,7 +201,7 @@ def relative_comparisons(stats):
                 value = method.get(metric + "_mean")
                 row[metric + "_reduction_pct"] = (
                     100 * (1 - value / reference)
-                    if value is not None and reference is not None and reference > 0
+                    if value is not None and reference is not None and (reference > 0)
                     else None
                 )
             reference = baseline["completed_qps_mean"]
@@ -240,7 +239,7 @@ def report_experiments(path, profile, output, violation_limit=0.04, bin_ms=1000)
         raise ValueError(
             "violation_limit must lie in [0,1] and bin_ms must be positive"
         )
-    path, output = Path(path), Path(output)
+    path, output = (Path(path), Path(output))
     output.mkdir(parents=True, exist_ok=True)
     rows, stats = aggregate_summary(path)
     offline_accuracy = export_profile(profile, output)
@@ -259,7 +258,7 @@ def report_experiments(path, profile, output, violation_limit=0.04, bin_ms=1000)
         _write_table(
             output / f"{name}.csv", [row for row in stats if row["experiment"] == study]
         )
-    if any(row["experiment"] == "pareto" for row in stats):
+    if any((row["experiment"] == "pareto" for row in stats)):
         fields = list(stats[0]) + [
             "selection",
             "violation_limit",

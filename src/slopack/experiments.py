@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from slopack.io import read_json, write_json
 from slopack.metrics import aggregate_runs
 from slopack.scheduler import ABLATIONS, POLICIES
@@ -93,16 +92,7 @@ def experiment(
                 for g in guards
             ]
             variants += [
-                (
-                    current,
-                    "poisson",
-                    rate,
-                    p,
-                    "none",
-                    0,
-                    {"timeout_ms": w},
-                    False,
-                )
+                (current, "poisson", rate, p, "none", 0, {"timeout_ms": w}, False)
                 for w in waits
                 for p in (
                     "fixed_timeout",
@@ -170,7 +160,7 @@ def experiment(
                 trace_path = (
                     output
                     / "traces"
-                    / f"seed{seed}_{kind}_{offered:g}_{'mixed' if mixed else 'default'}.csv"
+                    / f"seed{seed}_{kind}_{offered:g}_{('mixed' if mixed else 'default')}.csv"
                 )
                 generate_trace(
                     config,

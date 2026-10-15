@@ -1,8 +1,6 @@
 import csv
 from dataclasses import asdict, dataclass
-
 import numpy as np
-
 from slopack.io import write_csv, write_json
 
 
@@ -19,7 +17,7 @@ class Request:
 
     @property
     def queue_key(self):
-        return self.model, self.shape
+        return (self.model, self.shape)
 
 
 def load_trace(path, config, duration_ms):
@@ -84,7 +82,7 @@ def generate_trace(
     burst_end,
     warmup_ms=0.0,
 ):
-    if rate <= 0 or duration_s <= 0 or payloads < 1 or period_ms <= 0:
+    if rate <= 0 or duration_s <= 0 or payloads < 1 or (period_ms <= 0):
         raise ValueError("Rate, duration, payload count, and period must be positive")
     if burst_factor < 1 or not 0 <= burst_start < burst_end <= 1:
         raise ValueError("Invalid burst interval or factor")
@@ -104,7 +102,7 @@ def generate_trace(
             average = 1 + (burst_end - burst_start) * (burst_factor - 1)
             rates = [rate / average, rate * burst_factor / average, rate / average]
         else:
-            bounds, rates = [0, duration], [rate]
+            bounds, rates = ([0, duration], [rate])
         for left, right, local_rate in zip(bounds[:-1], bounds[1:], rates):
             time = left
             while True:

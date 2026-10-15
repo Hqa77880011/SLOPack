@@ -1,8 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
-
 import numpy as np
-
 from slopack.io import read_json, write_json
 
 
@@ -38,7 +36,7 @@ class ProfileEntry:
 
     @property
     def key(self):
-        return self.model, self.worker, self.shape, self.batch_size
+        return (self.model, self.worker, self.shape, self.batch_size)
 
     @property
     def conservative_ms(self):
@@ -58,7 +56,7 @@ class ProfileEntry:
                 float(np.percentile(self.residuals, 95)) + settings.guard_floor_ms
             )
         if len(self.errors) == window:
-            threshold = settings.stale_factor * max(self.relative_error_p95, 1e-6)
+            threshold = settings.stale_factor * max(self.relative_error_p95, 1e-06)
             if float(np.percentile(self.errors, 95)) > threshold:
                 self.stale = True
         self.estimate_ms = (

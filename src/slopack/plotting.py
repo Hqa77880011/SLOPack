@@ -1,13 +1,10 @@
 from collections import defaultdict
 from pathlib import Path
-
 import matplotlib
 
 matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import numpy as np
-
 from slopack.io import read_csv, read_json, write_csv
 from slopack.metrics import time_series
 from slopack.reporting import GROUP_FIELDS, aggregate_rows, aggregate_summary
@@ -21,7 +18,7 @@ def _save(figure, output, name):
 
 
 def plot_run(path, output, bin_ms=1000):
-    path, output = Path(path), Path(output)
+    path, output = (Path(path), Path(output))
     if bin_ms <= 0:
         raise ValueError("bin_ms must be positive")
     output.mkdir(parents=True, exist_ok=True)
@@ -29,7 +26,7 @@ def plot_run(path, output, bin_ms=1000):
     meta = read_json(path / "run.json")
     completed = [r for r in rows if r["completed_in_window"] == "True"]
     figure, axes = plt.subplots(1, 2, figsize=(10, 4))
-    latencies = sorted(float(r["latency_ms"]) for r in completed)
+    latencies = sorted((float(r["latency_ms"]) for r in completed))
     if latencies:
         axes[0].plot(
             latencies,
@@ -121,7 +118,7 @@ def plot_run(path, output, bin_ms=1000):
 
 
 def plot_experiment(path, output, violation_limit=0.04):
-    path, output = Path(path), Path(output)
+    path, output = (Path(path), Path(output))
     output.mkdir(parents=True, exist_ok=True)
     rows, stats = aggregate_summary(path)
     metrics = [key.removesuffix("_mean") for key in stats[0] if key.endswith("_mean")]
@@ -314,7 +311,7 @@ def plot_experiment(path, output, violation_limit=0.04):
 
 
 def plot_burst_comparison(path, output, bin_ms=1000):
-    path, output = Path(path), Path(output)
+    path, output = (Path(path), Path(output))
     runs = [
         row for row in read_csv(path / "summary.csv") if row["experiment"] == "burst"
     ]
@@ -337,7 +334,7 @@ def plot_burst_comparison(path, output, bin_ms=1000):
             row.update({key: run[key] for key in ("backend", "policy", "ablation")})
             row["trace_qps"] = run["offered_qps"]
             observations.append(row)
-        key = run["backend"], run["offered_qps"]
+        key = (run["backend"], run["offered_qps"])
         intervals[key] = [
             value * metadata["duration_ms"] / 1000
             for value in metadata["trace_metadata"]["burst_fraction"]
@@ -423,13 +420,13 @@ def plot_profile_accuracy(rows, output, offline=False):
     output.mkdir(parents=True, exist_ok=True)
     groups = defaultdict(list)
     if offline:
-        groups[("offline",)] = rows
+        groups["offline",] = rows
     else:
         studies = {row["experiment"] for row in rows}
         study = "compare" if "compare" in studies else sorted(studies)[0]
         for row in rows:
             if row["experiment"] == study:
-                groups[tuple(row[field] for field in GROUP_FIELDS)].append(row)
+                groups[tuple((row[field] for field in GROUP_FIELDS))].append(row)
     for index, (key, points) in enumerate(groups.items()):
         points = sorted(points, key=lambda row: (row["model"], row["worker"]))
         labels = [f"{row['model']}/{row['worker']}" for row in points]

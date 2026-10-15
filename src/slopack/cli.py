@@ -1,7 +1,6 @@
 import argparse
 import json
 from pathlib import Path
-
 from slopack.io import load_config, read_json
 from slopack.scheduler import ABLATIONS, POLICIES
 

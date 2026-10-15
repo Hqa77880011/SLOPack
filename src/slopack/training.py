@@ -1,7 +1,5 @@
 from pathlib import Path
-
 import numpy as np
-
 from slopack.io import write_csv, write_json
 from slopack.models import VISION_MODELS
 

@@ -1,7 +1,6 @@
 import csv
 import json
 from pathlib import Path
-
 import numpy as np
 
 
@@ -47,13 +46,13 @@ def load_config(path):
     sizes = config["batch_sizes"]
     if sizes != sorted(set(sizes)) or not sizes or sizes[0] != 1:
         raise ValueError("batch_sizes must be increasing, unique, and include 1")
-    if any(not isinstance(b, int) or b < 1 for b in sizes):
+    if any((not isinstance(b, int) or b < 1 for b in sizes)):
         raise ValueError("Batch sizes must be positive integers")
     names = {model["name"] for model in models}
     for model in models:
         if model["slo_ms"] <= 0 or model.get("weight", 1) <= 0:
             raise ValueError("SLO and traffic weight must be positive")
-        if not model["shapes"] or any(s <= 0 for s in model["shapes"]):
+        if not model["shapes"] or any((s <= 0 for s in model["shapes"])):
             raise ValueError("Model shapes must be positive")
         if not 0 <= model.get("priority", 0.5) <= 1:
             raise ValueError("Priority must lie in [0, 1]")
@@ -87,7 +86,7 @@ def prepare_data(source, output, count, seed, root):
                 channel = int(label % 3)
                 start = int(label * 2)
                 image[:, start : start + 8, channel] = 220
-            return images, labels
+            return (images, labels)
 
         images, labels = make(count)
         val_images, val_labels = make(max(2, count // 5))

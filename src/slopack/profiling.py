@@ -1,7 +1,5 @@
 from time import perf_counter_ns
-
 import numpy as np
-
 from slopack.io import write_json
 from slopack.models import forward, load_model, load_payloads, make_inputs, parameter_mb
 from slopack.profiles import summarize_samples
@@ -30,7 +28,7 @@ def torch_profile(
     cuda_timings = []
     for worker in config["workers"]:
         device = torch.device(worker["device"])
-        if device.type == "cuda" and not torch.cuda.is_available():
+        if device.type == "cuda" and (not torch.cuda.is_available()):
             raise ValueError("CUDA worker configured but CUDA is unavailable")
         for spec in config["models"]:
             if spec["name"] not in worker.get(
@@ -67,15 +65,17 @@ def torch_profile(
                                     finish.record(torch.cuda.current_stream(device))
                                     finish.synchronize()
                                     gpu_values.append(begin.elapsed_time(finish))
-                                values.append((perf_counter_ns() - start) / 1e6)
+                                values.append((perf_counter_ns() - start) / 1000000.0)
                         if device.type == "cuda":
                             input_mb = (
                                 sum(
-                                    t.numel() * t.element_size()
-                                    for t in (
-                                        inputs.values()
-                                        if isinstance(inputs, dict)
-                                        else [inputs]
+                                    (
+                                        t.numel() * t.element_size()
+                                        for t in (
+                                            inputs.values()
+                                            if isinstance(inputs, dict)
+                                            else [inputs]
+                                        )
                                     )
                                 )
                                 / 2**20

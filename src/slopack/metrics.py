@@ -1,7 +1,5 @@
 from collections import defaultdict
-
 import numpy as np
-
 from slopack.io import read_csv, read_json, write_csv, write_json
 
 
@@ -49,7 +47,7 @@ def time_series(rows, events, start_ms, end_ms, bin_ms=1000):
                 "completed": len(selected),
                 "completed_qps": len(selected) * 1000 / (right - left),
                 "p99_ms": percentile([float(r["latency_ms"]) for r in selected], 99),
-                "slo_violation_rate": sum(int(r["violated"]) for r in selected)
+                "slo_violation_rate": sum((int(r["violated"]) for r in selected))
                 / len(selected)
                 if selected
                 else None,
@@ -108,20 +106,25 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
         if arrived_in_window:
             cohort.append(row)
     backlog_start = sum(
-        r.arrival_ms < start_ms
-        and (
-            completion.get(r.request_id) is None or completion[r.request_id] >= start_ms
+        (
+            r.arrival_ms < start_ms
+            and (
+                completion.get(r.request_id) is None
+                or completion[r.request_id] >= start_ms
+            )
+            for r in requests
         )
-        for r in requests
     )
     backlog_end = sum(
-        completion.get(r.request_id) is None or completion[r.request_id] >= end_ms
-        for r in requests
-        if r.arrival_ms < end_ms
+        (
+            completion.get(r.request_id) is None or completion[r.request_id] >= end_ms
+            for r in requests
+            if r.arrival_ms < end_ms
+        )
     )
     latencies = [row["latency_ms"] for row in window_completions]
     violation_rate = (
-        sum(row["violated"] for row in window_completions) / len(window_completions)
+        sum((row["violated"] for row in window_completions)) / len(window_completions)
         if window_completions
         else None
     )
@@ -129,9 +132,11 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
     utilization = {}
     for worker in worker_names:
         busy = sum(
-            max(0.0, min(batch.end_ms, end_ms) - max(batch.start_ms, start_ms))
-            for batch in batches
-            if batch.worker == worker
+            (
+                max(0.0, min(batch.end_ms, end_ms) - max(batch.start_ms, start_ms))
+                for batch in batches
+                if batch.worker == worker
+            )
         )
         utilization[worker] = busy / elapsed
     per_model = []
@@ -170,12 +175,12 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
             row["completion_ms"] is not None
             and row["completion_ms"] < end_ms
             and row["violated"]
+            or (
+                row["deadline_ms"] < end_ms
+                and (row["completion_ms"] is None or row["completion_ms"] >= end_ms)
+            )
+            for row in cohort
         )
-        or (
-            row["deadline_ms"] < end_ms
-            and (row["completion_ms"] is None or row["completion_ms"] >= end_ms)
-        )
-        for row in cohort
     )
     metrics = {
         "measurement_start_ms": start_ms,
@@ -193,7 +198,7 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
         "cohort_deadline_failure_rate_at_end": failures / len(cohort)
         if cohort
         else None,
-        "on_time_qps": sum(not row["violated"] for row in window_completions)
+        "on_time_qps": sum((not row["violated"] for row in window_completions))
         / (elapsed / 1000),
         "p50_ms": percentile(latencies, 50),
         "p95_ms": percentile(latencies, 95),
@@ -250,7 +255,7 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
                 "admitted": len(admitted),
                 "completed_cohort": len(serviced),
                 "service_share": len(serviced) / len(admitted) if admitted else None,
-                "deadline_success_share": sum(not r["violated"] for r in serviced)
+                "deadline_success_share": sum((not r["violated"] for r in serviced))
                 / len(admitted)
                 if admitted
                 else None,
@@ -276,7 +281,7 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
     profile_groups = defaultdict(list)
     for batch in batches:
         if start_ms <= batch.end_ms < end_ms:
-            profile_groups[(batch.model, batch.worker)].append(
+            profile_groups[batch.model, batch.worker].append(
                 abs(batch.observed_ms - batch.prediction_ms) / batch.observed_ms
             )
     profile_rows = [
@@ -294,7 +299,7 @@ def evaluate(requests, batches, start_ms, end_ms, worker_names, costs):
         if profile_rows
         else None
     )
-    return metrics, rows, per_model, classes, profile_rows
+    return (metrics, rows, per_model, classes, profile_rows)
 
 
 def save_run(
@@ -327,7 +332,7 @@ def save_run(
             "shape": b.shape,
             "worker": b.worker,
             "batch_size": b.size,
-            "request_ids": " ".join(str(r.request_id) for r in b.requests),
+            "request_ids": " ".join((str(r.request_id) for r in b.requests)),
             "assigned_ms": b.assigned_ms,
             "start_ms": b.start_ms,
             "end_ms": b.end_ms,
@@ -412,7 +417,7 @@ def aggregate_runs(paths, output):
         )
         row["run"] = str(path)
         rows.append(row)
-    fields = list(dict.fromkeys(key for row in rows for key in row))
+    fields = list(dict.fromkeys((key for row in rows for key in row)))
     write_csv(output, rows, fields)
     return rows
 
@@ -420,7 +425,6 @@ def aggregate_runs(paths, output):
 def evaluate_saved(path):
     import csv
     from pathlib import Path
-
     from slopack.scheduler import Batch
     from slopack.workload import Request
 

@@ -1,7 +1,6 @@
 import multiprocessing as mp
 from queue import Empty
 from time import perf_counter_ns
-
 from slopack.metrics import save_run
 from slopack.models import (
     forward,
@@ -83,7 +82,7 @@ def _worker_loop(worker, specs, precision, threads, bank, jobs, messages, reserv
                         "completed",
                         batch.batch_id,
                         ended,
-                        (ended - started) / 1e6,
+                        (ended - started) / 1000000.0,
                         predictions,
                         gpu_ms,
                     )
@@ -168,15 +167,15 @@ def execute(
             process.start()
             processes.append(process)
         ready = set()
-        startup_deadline = perf_counter_ns() + startup_timeout_s * 1e9
+        startup_deadline = perf_counter_ns() + startup_timeout_s * 1000000000.0
         while len(ready) < len(processes):
-            remaining = (startup_deadline - perf_counter_ns()) / 1e9
+            remaining = (startup_deadline - perf_counter_ns()) / 1000000000.0
             if remaining <= 0:
                 raise RuntimeError("Worker startup timed out")
             try:
                 message = messages.get(timeout=min(remaining, 1))
             except Empty:
-                if any(not p.is_alive() for p in processes):
+                if any((not p.is_alive() for p in processes)):
                     raise RuntimeError("Worker exited during startup")
                 continue
             if message[0] == "error":
@@ -197,17 +196,19 @@ def execute(
                 raise RuntimeError(f"Worker {message[1]}: {message[2]}")
             batch = assigned[message[1]]
             if kind == "started":
-                scheduler.started(batch, (message[2] - epoch) / 1e6)
+                scheduler.started(batch, (message[2] - epoch) / 1000000.0)
             elif kind == "completed":
-                scheduler.completed(batch, (message[2] - epoch) / 1e6, message[3])
+                scheduler.completed(batch, (message[2] - epoch) / 1000000.0, message[3])
                 completed.append(batch)
                 predictions.extend(
-                    {
-                        "request_id": r.request_id,
-                        "model": batch.model,
-                        "prediction": value,
-                    }
-                    for r, value in zip(batch.requests, message[4])
+                    (
+                        {
+                            "request_id": r.request_id,
+                            "model": batch.model,
+                            "prediction": value,
+                        }
+                        for r, value in zip(batch.requests, message[4])
+                    )
                 )
                 gpu_times.append(
                     {"batch_id": batch.batch_id, "cuda_event_ms": message[5]}
@@ -229,9 +230,9 @@ def execute(
                     handle(messages.get_nowait())
                 except Empty:
                     break
-            if any(not process.is_alive() for process in processes):
+            if any((not process.is_alive() for process in processes)):
                 raise RuntimeError("Worker exited during execution")
-            now = (perf_counter_ns() - epoch) / 1e6
+            now = (perf_counter_ns() - epoch) / 1000000.0
             while next_tick <= now:
                 while (
                     cursor < len(requests) and requests[cursor].arrival_ms < next_tick
@@ -242,8 +243,8 @@ def execute(
                 events.append(
                     {
                         "time_ms": next_tick,
-                        "backlog": sum(len(q) for q in scheduler.queues.values())
-                        + sum(b.size for b in assigned.values()),
+                        "backlog": sum((len(q) for q in scheduler.queues.values()))
+                        + sum((b.size for b in assigned.values())),
                         "arrival_rate_per_ms": sum(scheduler.estimator.rates.values()),
                         "protection": scheduler.protection,
                     }
@@ -266,11 +267,11 @@ def execute(
                 assigned[batch.batch_id] = batch
                 entry = profiles.get(batch.model, batch.worker, batch.shape, batch.size)
                 jobs[batch.worker].put((batch, entry.memory_mb))
-                now = (perf_counter_ns() - epoch) / 1e6
+                now = (perf_counter_ns() - epoch) / 1000000.0
             if (
                 cursor >= len(requests)
-                and not assigned
-                and not any(scheduler.queues.values())
+                and (not assigned)
+                and (not any(scheduler.queues.values()))
             ):
                 break
             wakeup = min(

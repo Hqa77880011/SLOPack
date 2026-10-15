@@ -1,8 +1,6 @@
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-
 import numpy as np
-
 
 POLICIES = (
     "slopack",
@@ -15,14 +13,7 @@ POLICIES = (
     "fastest_gpu",
     "dynamic_no_slack",
 )
-ABLATIONS = (
-    "none",
-    "no_arrival",
-    "no_hetero",
-    "no_queue",
-    "no_aging",
-    "no_burst",
-)
+ABLATIONS = ("none", "no_arrival", "no_hetero", "no_queue", "no_aging", "no_burst")
 
 
 @dataclass
@@ -30,7 +21,7 @@ class Settings:
     rho: float = 0.15
     eta: float = 0.2
     window_ms: float = 10.0
-    epsilon: float = 1e-6
+    epsilon: float = 1e-06
     alpha: float = 1.0
     beta: float = 0.25
     gamma: float = 0.02
@@ -118,8 +109,10 @@ class WorkerState:
             entry = profiles.get(batch.model, self.name, batch.shape, batch.size)
             remaining = max(0.0, entry.estimate_ms - (now - batch.start_ms))
         return remaining + sum(
-            profiles.get(b.model, self.name, b.shape, b.size).estimate_ms
-            for b in self.pending
+            (
+                profiles.get(b.model, self.name, b.shape, b.size).estimate_ms
+                for b in self.pending
+            )
         )
 
 
@@ -192,7 +185,7 @@ class Scheduler:
         self.workers = {}
         for worker in config["workers"]:
             replicas = set(worker.get("replicas", model_names))
-            resident = sum(profiles.resident(m, worker["name"]) for m in replicas)
+            resident = sum((profiles.resident(m, worker["name"]) for m in replicas))
             free = worker["memory_mb"] - resident - self.settings.memory_reserve_mb
             self.workers[worker["name"]] = WorkerState(worker["name"], free, replicas)
         self.worker_config = {w["name"]: w for w in config["workers"]}
@@ -227,7 +220,7 @@ class Scheduler:
             if (
                 model in worker.replicas
                 and entry is not None
-                and entry.memory_mb <= worker.free_mb
+                and (entry.memory_mb <= worker.free_mb)
             ):
                 workers.append(worker)
         return workers
@@ -257,14 +250,14 @@ class Scheduler:
             )
             runtime = entry.conservative_ms if conservative else entry.estimate_ms
             completion = now + self.backlog(worker, now) + runtime
-            violations = sum(completion > r.deadline_ms for r in requests)
-            tardiness = max(max(0, completion - r.deadline_ms) for r in requests)
+            violations = sum((completion > r.deadline_ms for r in requests))
+            tardiness = max((max(0, completion - r.deadline_ms) for r in requests))
             key = (violations, tardiness, completion)
             if self.policy == "queue_length":
-                count = sum(b.size for b in worker.pending)
+                count = sum((b.size for b in worker.pending))
                 count += worker.running.size if worker.running else 0
                 key = (count, completion)
-            if self.settings.energy_mode and not self.protection:
+            if self.settings.energy_mode and (not self.protection):
                 power = self.worker_config[worker.name].get("power_w")
                 if power is None:
                     raise ValueError("energy_mode requires power_w for every worker")
@@ -285,28 +278,34 @@ class Scheduler:
                 "fastest_gpu",
                 "dynamic_no_slack",
             ):
-                return request.arrival_ms, request.request_id
+                return (request.arrival_ms, request.request_id)
             if self.policy == "edf":
-                return request.deadline_ms, request.request_id
+                return (request.deadline_ms, request.request_id)
             if self.policy == "sjf":
                 shortest = min(
-                    self.profiles.get(
+                    (
+                        self.profiles.get(
+                            request.model, w.name, request.shape, 1
+                        ).estimate_ms
+                        for w in self.eligible(request.model, request.shape, 1)
+                    )
+                )
+                return (shortest, request.request_id)
+            slack = min(
+                (
+                    request.deadline_ms
+                    - now
+                    - self.backlog(w, now)
+                    - self.profiles.get(
                         request.model, w.name, request.shape, 1
                     ).estimate_ms
                     for w in self.eligible(request.model, request.shape, 1)
                 )
-                return shortest, request.request_id
-            slack = min(
-                request.deadline_ms
-                - now
-                - self.backlog(w, now)
-                - self.profiles.get(request.model, w.name, request.shape, 1).estimate_ms
-                for w in self.eligible(request.model, request.shape, 1)
             )
             gamma = 0 if self.ablation == "no_aging" else self.settings.gamma
             score = -self.settings.alpha * slack + self.settings.beta * request.priority
             score += gamma * (now - request.arrival_ms)
-            return -score, request.request_id
+            return (-score, request.request_id)
 
         return sorted(active, key=rank)
 
@@ -331,8 +330,8 @@ class Scheduler:
         if self.policy in ("fcfs", "edf", "sjf"):
             return self._prefix(queue, 1)
         if self.policy == "static":
-            target = max(b for b in supported if b <= self.settings.static_batch_size)
-            if len(queue) < target and not exhausted:
+            target = max((b for b in supported if b <= self.settings.static_batch_size))
+            if len(queue) < target and (not exhausted):
                 return None
             return self._prefix(queue, min(size, target))
         if self.policy != "slopack":
@@ -340,27 +339,37 @@ class Scheduler:
             until = head.arrival_ms + self.settings.timeout_ms
             wait = self.waits.get(key)
             expired = (
-                wait and wait.head_id == head.request_id and now >= wait.until_ms - 1e-9
+                wait
+                and wait.head_id == head.request_id
+                and (now >= wait.until_ms - 1e-09)
             )
-            if len(queue) < target and now < until and not exhausted and not expired:
+            if (
+                len(queue) < target
+                and now < until
+                and (not exhausted)
+                and (not expired)
+            ):
                 if self.policy == "fixed_timeout":
                     self.waits[key] = Wait(head.request_id, head.arrival_ms, until)
                     return None
-                target = min(b for b in supported if b > len(queue))
+                target = min((b for b in supported if b > len(queue)))
                 fill = (target - len(queue)) / max(
                     self.estimator.rates[head.model], self.settings.epsilon
                 )
                 improves = any(
-                    self.profiles.get(head.model, w.name, head.shape, size) is not None
-                    and self.profiles.get(
-                        head.model, w.name, head.shape, target
-                    ).estimate_ms
-                    / target
-                    < self.profiles.get(
-                        head.model, w.name, head.shape, size
-                    ).estimate_ms
-                    / size
-                    for w in self.eligible(head.model, head.shape, target)
+                    (
+                        self.profiles.get(head.model, w.name, head.shape, size)
+                        is not None
+                        and self.profiles.get(
+                            head.model, w.name, head.shape, target
+                        ).estimate_ms
+                        / target
+                        < self.profiles.get(
+                            head.model, w.name, head.shape, size
+                        ).estimate_ms
+                        / size
+                        for w in self.eligible(head.model, head.shape, target)
+                    )
                 )
                 if improves and fill <= until - now:
                     self.waits[key] = Wait(head.request_id, head.arrival_ms, now + fill)
@@ -370,14 +379,14 @@ class Scheduler:
         for b in available:
             requests = self._prefix(queue, b)
             placement = self.placement(requests, now, conservative=True)
-            if placement and placement[3] <= min(r.deadline_ms for r in requests):
+            if placement and placement[3] <= min((r.deadline_ms for r in requests)):
                 safe_sizes.append(b)
         size = max(safe_sizes, default=1)
         requests = self._prefix(queue, size)
         central = self.placement(requests, now)
         if (
             not central
-            or central[3] >= min(r.deadline_ms for r in requests)
+            or central[3] >= min((r.deadline_ms for r in requests))
             or exhausted
         ):
             return requests
@@ -390,14 +399,14 @@ class Scheduler:
             if self.protection
             else self.settings.wait_cap_ms
         )
-        if now >= start + cap_ms or (wait and now >= wait.until_ms - 1e-9):
+        if now >= start + cap_ms or (wait and now >= wait.until_ms - 1e-09):
             return requests
         targets = [b for b in supported if b > len(queue)]
         if not targets:
             return requests
         target = min(targets)
         included = list(queue)
-        deadline = min(r.deadline_ms for r in included)
+        deadline = min((r.deadline_ms for r in included))
         rate = self.estimator.rates[head.model]
         fill = (target - len(queue)) / max(rate, self.settings.epsilon)
         untils = []
@@ -429,7 +438,7 @@ class Scheduler:
                     untils.append(min(now + guarded, start + cap_ms))
             elif fill <= guarded:
                 untils.append(min(now + fill, now + guarded, start + cap_ms))
-        if untils and max(untils) > now + 1e-9:
+        if untils and max(untils) > now + 1e-09:
             self.waits[key] = Wait(head.request_id, start, max(untils))
             return None
         return requests
@@ -459,7 +468,7 @@ class Scheduler:
         values = [
             wait.until_ms
             for key, wait in self.waits.items()
-            if self.queues[key] and wait.until_ms > now + 1e-9
+            if self.queues[key] and wait.until_ms > now + 1e-09
         ]
         return min(values, default=float("inf"))
 
