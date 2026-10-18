@@ -212,6 +212,20 @@ slopack report --input outputs/paper --profile outputs/gpu_profile.json --output
 
 All report tables retain P50/P95/P99, completed and on-time QPS, endpoint backlogs, per-worker utilization, model/class Jain indices, profile errors, and mean/P95 scheduling cost when applicable. `relative_comparisons.csv` computes violation and P99 reductions and QPS gains against each comparison variant. `pareto_best.csv` contains each policy's highest-throughput feasible point, the best feasible baseline, and SLOPack's relative QPS gain. If no point satisfies the constraint, the table has a header and no selected rows.
 
+## Registered compact reproduction setting
+
+Three model queues, two heterogeneous virtual workers and declared synthetic latency/memory laws. All policies share one trace and profile; latency/QPS are simulated scheduler outcomes, while controller host cost is recorded separately.
+
+Run from the repository root after installation. The following commands use the registered setting; they are provided for execution and have not been run as part of the source review.
+
+```bash
+slopack profile --config configs/reproduce.json --backend synthetic --samples 100 --heldout 20 --seed 17 --output outputs/reproduce_profile.json
+slopack experiment --config configs/reproduce.json --profile outputs/reproduce_profile.json --backend simulation --study compare --duration-s 20 --warmup-s 2 --rate 100 --seeds 17 37 57 --output outputs/reproduce
+slopack report --input outputs/reproduce --profile outputs/reproduce_profile.json --output outputs/reproduce/report
+```
+
+This setting needs no external dataset or pretrained weights. Generated inputs and declared fault/shift laws define the finite task; reported quantities retain that provenance.
+
 ## Configuration
 
 Configs contain `models`, `workers`, `batch_sizes`, and `scheduler`. A model specifies its architecture, shape buckets, SLO, traffic weight, priority, weights, and optionally a checkpoint. Each worker specifies its name, device, memory budget in MiB, and optionally a `replicas` list. Omitted `replicas` means all configured models. Worker names index the profile, so rebuild profiles when changing them. CUDA device indices and memory budgets must match the installed hardware.

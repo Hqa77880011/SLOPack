@@ -1,0 +1,93 @@
+{
+  "batch_sizes": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "models": [
+    {
+      "name": "resnet50",
+      "architecture": "resnet50",
+      "shapes": [
+        224
+      ],
+      "slo_ms": 80,
+      "weight": 1,
+      "priority": 0.5,
+      "synthetic_base_ms": 2.0,
+      "synthetic_item_ms": 1.8,
+      "resident_mb": 100,
+      "activation_mb": 45
+    },
+    {
+      "name": "efficientnet_b3",
+      "architecture": "efficientnet_b3",
+      "shapes": [
+        300
+      ],
+      "slo_ms": 100,
+      "weight": 1,
+      "priority": 0.4,
+      "synthetic_base_ms": 3.0,
+      "synthetic_item_ms": 3.8,
+      "resident_mb": 60,
+      "activation_mb": 80
+    },
+    {
+      "name": "mobilenet_v3_large",
+      "architecture": "mobilenet_v3_large",
+      "shapes": [
+        224
+      ],
+      "slo_ms": 60,
+      "weight": 1,
+      "priority": 0.6,
+      "synthetic_base_ms": 1.2,
+      "synthetic_item_ms": 1.2,
+      "resident_mb": 24,
+      "activation_mb": 25
+    }
+  ],
+  "workers": [
+    {
+      "name": "virtual_slow",
+      "device": "virtual",
+      "memory_mb": 16384,
+      "speed": 1.0
+    },
+    {
+      "name": "virtual_fast",
+      "device": "virtual",
+      "memory_mb": 40960,
+      "speed": 3.0
+    }
+  ],
+  "scheduler": {
+    "rho": 0.15,
+    "eta": 0.2,
+    "window_ms": 10,
+    "epsilon": 1e-06,
+    "alpha": 1.0,
+    "beta": 0.25,
+    "gamma": 0.02,
+    "wait_cap_ms": 5.0,
+    "memory_reserve_mb": 256,
+    "burst_reference_ms": 200,
+    "burst_enter_ratio": 1.25,
+    "burst_exit_ratio": 1.05,
+    "burst_enter_windows": 3,
+    "burst_exit_windows": 5,
+    "burst_wait_ms": 0.5,
+    "burst_batch_cap": 8,
+    "low_priority_threshold": 0.5,
+    "guard_floor_ms": 0.2,
+    "guard_update_batches": 100,
+    "stale_window": 100,
+    "stale_factor": 2.0,
+    "static_batch_size": 8,
+    "timeout_ms": 5.0,
+    "energy_mode": false
+  }
+}
